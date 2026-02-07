@@ -1,0 +1,10 @@
+{
+  "domain": "smsnet_aquamatrix",
+  "name": "AQUAmatrix SMSnet",
+  "version": "0.3.6",
+  "documentation": "https://example.com/",
+  "requirements": [],
+  "codeowners": ["@you"],
+  "iot_class": "cloud_polling",
+  "config_flow": true
+}

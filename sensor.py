@@ -10,6 +10,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import DOMAIN
+import datetime
+import re
+import logging
+
+Logger = logging.getLogger(__name__)
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     data = hass.data[DOMAIN][entry.entry_id]
@@ -22,16 +27,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             coordinator, entry, tenant, "last_reading_value", "Água - Última leitura (m³)",
             unit="m³", device_class=SensorDeviceClass.WATER, state_class=SensorStateClass.TOTAL_INCREASING
         ),
-        SMSnetSensor(coordinator, entry, tenant, "last_reading_date", "Água - Data última leitura", unit=None, device_class="timestamp"),
+        SMSnetSensor(coordinator, entry, tenant, "last_reading_date", "Água - Data última leitura", unit=None, device_class="date"),
 
         # Consumos mensais (medição)
         SMSnetSensor(
             coordinator, entry, tenant, "consumption_current_month", "Água - Consumo mês atual (m³)",
-            unit="m³", device_class=SensorDeviceClass.WATER, state_class=SensorStateClass.MEASUREMENT
+            unit="m³", device_class=SensorDeviceClass.WATER, state_class=SensorStateClass.TOTAL
         ),
         SMSnetSensor(
             coordinator, entry, tenant, "consumption_previous_month", "Água - Consumo mês anterior (m³)",
-            unit="m³", device_class=SensorDeviceClass.WATER, state_class=SensorStateClass.MEASUREMENT
+            unit="m³", device_class=SensorDeviceClass.WATER, state_class=SensorStateClass.TOTAL
         ),
         SMSnetSensor(coordinator, entry, tenant, "consumption_current_month_label", "Água - Consumo mês atual (label)", unit=None),
 
@@ -45,7 +50,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             coordinator, entry, tenant, "debt_total", "Água - Valor em dívida (€)",
             unit="€", state_class=SensorStateClass.MEASUREMENT
         ),
-        SMSnetSensor(coordinator, entry, tenant, "next_due_date", "Água - Próxima data limite", unit=None, device_class="timestamp"),
+        SMSnetSensor(coordinator, entry, tenant, "next_due_date", "Água - Próxima data limite", unit=None, device_class="date"),
     ]
     async_add_entities(entities)
 
@@ -76,10 +81,20 @@ class SMSnetSensor(CoordinatorEntity, SensorEntity):
         billinfo = data.get("billing_info") or {}
         if self._key == "last_reading_value":
             v = last.get("Value") or last.get("LastReadingValue") or "0"
-            try: return float(str(v).replace(",", "."))
-            except Exception: return None
+
+            try:
+                parsed_str = re.sub(r'\s', '', str(v)).replace(',', ".")
+                return float(parsed_str)
+            except Exception:
+                Logger.error(f"Error parsing last reading value: {v}")
+                return None
         if self._key == "last_reading_date":
-            return last.get("LastReadingDate") or last.get("Date") or None
+            v = last.get("LastReadingDate") or last.get("Date")
+            try: 
+                return datetime.strptime(v, "%Y-%m-%d").date()
+            except Exception: 
+                Logger.error(f"Error parsing last reading date: {v}")
+                return None
         if self._key in ("consumption_current_month", "consumption_previous_month", "consumption_current_month_label"):
             arr = []
             if isinstance(cons, dict) and "Values" in cons: arr = cons.get("Values") or []
@@ -112,5 +127,7 @@ class SMSnetSensor(CoordinatorEntity, SensorEntity):
             return None
         if self._key == "next_due_date":
             inv = billinfo.get("nextInvoice") or billinfo.get("proximaFatura") or {}
-            return inv.get("limitDate") or inv.get("dataLimite") or billinfo.get("limitDate") or billinfo.get("dataLimite")
+            v = inv.get("limitDate") or inv.get("dataLimite") or billinfo.get("limitDate") or billinfo.get("dataLimite")
+            try: return datetime.strptime(v, "%Y-%m-%d").date()
+            except Exception: return None
         return None
